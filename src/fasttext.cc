@@ -18,8 +18,14 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <queue>
+#include <algorithm>
+
+#include <mutex>
 
 namespace fasttext {
+
+    std::mutex saving_mutex;
 
 constexpr int32_t FASTTEXT_VERSION = 12; /* Version 1b */
 constexpr int32_t FASTTEXT_FILEFORMAT_MAGIC_INT32 = 793712314;
@@ -276,6 +282,22 @@ void FastText::printInfo(real progress, real loss, std::ostream& log_stream) {
   log_stream << "h" << std::setw(2) << etam << "m";
   log_stream << std::flush;
 }
+
+    void FastText::printSavingInfo(real progress, real loss, int current_epoch) {
+      real t = real(clock() - start) / CLOCKS_PER_SEC;
+      real wst = real(tokenCount) / t;
+      real lr = args_->lr * (1.0 - progress);
+      int eta = int(t / progress * (1 - progress) / args_->thread);
+      int etah = eta / 3600;
+      int etam = (eta - etah * 3600) / 60;
+      std::cerr << "Saving the model at epoch " << current_epoch << std::endl;
+      std::cerr << "\rProgress: " << std::setprecision(1) << 100 * progress << "%";
+      std::cerr << "  words/sec/thread: " << std::setprecision(0) << wst;
+      std::cerr << "  lr: " << std::setprecision(6) << lr;
+      std::cerr << "  loss: " << std::setprecision(6) << loss;
+      std::cerr << "  eta: " << etah << "h" << etam << "m ";
+      std::cerr << std::flush;
+    }
 
 std::vector<int32_t> FastText::selectEmbeddings(int32_t cutoff) const {
   Vector norms(input_->size(0));
@@ -638,6 +660,7 @@ void FastText::trainThread(int32_t threadId) {
 
   const int64_t ntokens = dict_->ntokens();
   int64_t localTokenCount = 0;
+  int current_epoch = 1;
   std::vector<int32_t> line, labels;
   while (tokenCount_ < args_->epoch * ntokens) {
     real progress = real(tokenCount_) / (args_->epoch * ntokens);
@@ -655,8 +678,25 @@ void FastText::trainThread(int32_t threadId) {
     if (localTokenCount > args_->lrUpdateRate) {
       tokenCount_ += localTokenCount;
       localTokenCount = 0;
-      if (threadId == 0 && args_->verbose > 1)
+      if (current_epoch * ntokens < tokenCount) {
+        current_epoch++;
+        // all threads try to acquire lock and wait forever
+        std::lock_guard<std::mutex> lock(saving_mutex);
+        // if they succeed, they go on if they are not the first thread.
+        if (threadId == 0) {
+          printSavingInfo(progress, model.getLoss(), current_epoch);
+          saveModel(utils::format_epoch_suffix(current_epoch));
+          if (args_->model != model_name::sup) {
+            saveVectors(utils::format_epoch_suffix(current_epoch));
+            if (args_->saveOutput > 0) {
+              saveOutput(utils::format_epoch_suffix(current_epoch));
+            }
+          }
+        }
+      }
+      if (threadId == 0 && args_->verbose > 1) {
         loss_ = model.getLoss();
+      }
     }
   }
   if (threadId == 0)
@@ -722,13 +762,34 @@ void FastText::train(const Args args) {
   dict_->readFromFile(ifs);
   ifs.close();
 
-  if (args_->pretrainedVectors.size() != 0) {
-    loadVectors(args_->pretrainedVectors);
+  if (args_->loadFromModelBinFile.size() != 0) {
+      std::cerr << "Loading from model bin file: " << args_->loadFromModelBinFile << std::endl;
+    loadModel(std::string(args_->loadFromModelBinFile));
+      std::cerr << "Loaded from model bin file: " << args_->loadFromModelBinFile << std::endl << std::flush;
+      args_->input = args->input;
+      args_->output = args->output;
+      args_->qout = args->qout;
+      args_->qnorm = args->qnorm;
+      args_->dsub = args->dsub;
+      args_->qnorm = args->qnorm;
+
+      args_->epoch = args->epoch;
+      args_->lr = args->lr;
+      args_->thread = args->thread;
+      args_->verbose = args->verbose;
+
+//      qinput_ = std::make_shared<QMatrix>(*input_, args->dsub, args->qnorm);
+//
+//      if (args_->qout) {
+//          qoutput_ = std::make_shared<QMatrix>(*output_, 2, args->qnorm);
+//      }
   } else {
-    input_ =
-        std::make_shared<Matrix>(dict_->nwords() + args_->bucket, args_->dim);
-    input_->uniform(1.0 / args_->dim);
-  }
+    if (args_->pretrainedVectors.size() != 0) {
+      loadVectors(args_->pretrainedVectors);
+    } else {
+      input_ = std::make_shared<Matrix>(dict_->nwords() + args_->bucket, args_->dim);
+      input_->uniform(1.0 / args_->dim);
+    }
 
   if (args_->model == model_name::sup) {
     output_ = std::make_shared<Matrix>(dict_->nlabels(), args_->dim);
@@ -751,6 +812,7 @@ void FastText::startThreads() {
   loss_ = -1;
   std::vector<std::thread> threads;
   for (int32_t i = 0; i < args_->thread; i++) {
+    std::cerr << "Starting thread id: " << i << std::endl;
     threads.push_back(std::thread([=]() { trainThread(i); }));
   }
   const int64_t ntokens = dict_->ntokens();

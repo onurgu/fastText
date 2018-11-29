@@ -21,34 +21,35 @@ enum class loss_name : int { hs = 1, ns, softmax };
 
 class Args {
  protected:
-  std::string lossToString(loss_name) const;
-  std::string boolToString(bool) const;
-  std::string modelToString(model_name) const;
+    std::string lossToString(loss_name) const;
+    std::string boolToString(bool) const;
+    std::string modelToString(model_name) const;
 
- public:
-  Args();
-  std::string input;
-  std::string output;
-  double lr;
-  int lrUpdateRate;
-  int dim;
-  int ws;
-  int epoch;
-  int minCount;
-  int minCountLabel;
-  int neg;
-  int wordNgrams;
-  loss_name loss;
-  model_name model;
-  int bucket;
-  int minn;
-  int maxn;
-  int thread;
-  double t;
-  std::string label;
-  int verbose;
-  std::string pretrainedVectors;
-  bool saveOutput;
+  public:
+    Args();
+    std::string input;
+    std::string output;
+    double lr;
+    int lrUpdateRate;
+    int dim;
+    int ws;
+    int epoch;
+    int minCount;
+    int minCountLabel;
+    int neg;
+    int wordNgrams;
+    loss_name loss;
+    model_name model;
+    int bucket;
+    int minn;
+    int maxn;
+    int thread;
+    double t;
+    std::string label;
+    int verbose;
+    std::string pretrainedVectors;
+    std::string loadFromModelBinFile;
+    bool saveOutput;
 
   bool qout;
   bool retrain;

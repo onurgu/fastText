@@ -21,9 +21,16 @@ int64_t size(std::ifstream& ifs) {
 }
 
 void seek(std::ifstream& ifs, int64_t pos) {
-  ifs.clear();
-  ifs.seekg(std::streampos(pos));
+    ifs.clear();
+    ifs.seekg(std::streampos(pos));
 }
+
+std::string format_epoch_suffix(int epoch_no) {
+        std::ostringstream stringStream;
+        stringStream << "-epoch-" << epoch_no;
+        std::string copyOfStr = stringStream.str();
+        return copyOfStr;
+    }
 } // namespace utils
 
 } // namespace fasttext
